@@ -13,30 +13,57 @@
 </head>
 <body>
   <div id="map"></div>
+
   <script>
+    // Initialize Supabase client
     const { createClient } = supabase
     const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co'
-    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E' // from your Supabase project
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E'
     const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-    // 1ï¸âƒ£ Get token from URL
+    // Get token from URL
     const params = new URLSearchParams(window.location.search)
     const token = params.get('t')
-    console.log('Share token:', token)
+    console.log('📍 Share token:', token)
 
-    // 2ï¸âƒ£ Init map
+    // Initialize Leaflet map
     const map = L.map('map').setView([0, 0], 2)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map)
     const marker = L.marker([0, 0]).addTo(map)
 
-    // 3ï¸âƒ£ Subscribe to live updates
+    // Fetch the initial location once
+    async function loadInitial() {
+      const { data, error } = await supabaseClient
+        .from('public_locations')
+        .select('lat, lon')
+        .eq('share_token', token)
+        .single()
+      if (error) {
+        console.error('❌ Error fetching initial location:', error)
+        return
+      }
+      if (data) {
+        const { lat, lon } = data
+        console.log('✅ Initial location:', lat, lon)
+        marker.setLatLng([lat, lon])
+        map.setView([lat, lon], 14)
+      }
+    }
+    loadInitial()
+
+    // Subscribe to live updates (realtime)
     supabaseClient
       .channel('location-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'public_locations', filter: `share_token=eq.${token}` }, payload => {
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'public_locations', 
+        filter: `share_token=eq.${token}` 
+      }, payload => {
         const { lat, lon } = payload.new
-        console.log('New location:', lat, lon)
+        console.log('📡 New location:', lat, lon)
         marker.setLatLng([lat, lon])
         map.setView([lat, lon], 14)
       })
