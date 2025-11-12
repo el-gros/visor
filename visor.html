@@ -1,133 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Live Tracker</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<style>
-  html, body {
-    height: 100%;
-    margin: 0;
-    font-family: system-ui, sans-serif;
-  }
-
-  #map {
-    width: 100%;
-    height: 100%;
-  }
-
-  #info {
-    position: absolute;
-    bottom: 15px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.7);
-    color: white;
-    padding: 10px 16px;
-    border-radius: 12px;
-    font-size: 16px;
-    font-weight: 500;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.3);
-  }
-</style>
-
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+    #timestamp {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-family: sans-serif;
+      font-size: 14px;
+      z-index: 1000;
+    }
+  </style>
 </head>
 <body>
   <div id="map"></div>
-  <div id="info">Loading trajectory...</div>
+  <div id="timestamp">Loading...</div>
 
-<script>
-  const { createClient } = supabase;
+  <script>
+    // ✅ Configure Supabase
+    const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  // ✅ Your Supabase credentials
-  const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co';
-  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
-  const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-  // 🧭 Get token from URL
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get('t');
-  if (!token) alert('Missing share token (?t=...)');
-
-  // 🗺️ Initialize map
-  const map = L.map('map').setView([0, 0], 2);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(map);
-
-  const marker = L.marker([0, 0]).addTo(map);
-  const polyline = L.polyline([], { color: 'blue', weight: 5, opacity: 0.8 }).addTo(map);
-  const infoBox = document.getElementById('info');
-
-  // 🕓 Helper to format times nicely
-  function formatTime(ts) {
-    if (!ts) return '';
-    return new Date(ts).toLocaleString();
-  }
-
-  // 📍 Load all existing points for this token
-  async function loadHistory() {
-    const { data, error } = await supabaseClient
-      .from('public_locations')
-      .select('lat, lon, updated_at')
-      .eq('share_token', token)
-      .order('updated_at', { ascending: true });
-
-    if (error) {
-      console.error('Error loading history:', error);
-      infoBox.textContent = 'Error loading data.';
-      return;
+    // ✅ Read token from URL (e.g., ?t=abc123)
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('t');
+    if (!token) {
+      alert('No token provided');
     }
 
-    if (!data || data.length === 0) {
-      infoBox.textContent = 'Waiting for location data...';
-      return;
+    const map = L.map('map').setView([0, 0], 3);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+    }).addTo(map);
+
+    let polyline, marker;
+
+    async function loadTrajectory() {
+      const { data, error } = await supabase
+        .from('public_locations')
+        .select('lat, lon, updated_at')
+        .eq('share_token', token)
+        .order('updated_at', { ascending: true });
+
+      if (error) {
+        console.error('Error loading trajectory:', error);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        document.getElementById('timestamp').textContent = 'No locations yet.';
+        return;
+      }
+
+      const latlngs = data.map(p => [p.lat, p.lon]);
+      const last = data[data.length - 1];
+
+      if (polyline) map.removeLayer(polyline);
+      if (marker) map.removeLayer(marker);
+
+      polyline = L.polyline(latlngs, { color: 'blue', weight: 4 }).addTo(map);
+      marker = L.marker([last.lat, last.lon]).addTo(map);
+      map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+
+      const updatedTime = new Date(last.updated_at).toLocaleString();
+      document.getElementById('timestamp').textContent = `Last update: ${updatedTime}`;
     }
 
-    const coords = data.map((d) => [d.lat, d.lon]);
-    polyline.setLatLngs(coords);
-
-    const last = data[data.length - 1];
-    marker.setLatLng([last.lat, last.lon]);
-
-    if (coords.length > 1) {
-      map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
-    } else {
-      map.setView([last.lat, last.lon], 14);
-    }
-
-    infoBox.textContent = `📍 Last update: ${formatTime(last.updated_at)}`;
-  }
-
-  // 🔄 Subscribe to realtime updates
-  function subscribeRealtime() {
-    supabaseClient
-      .channel('live-locations')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'public_locations',
-          filter: `share_token=eq.${token}`,
-        },
-        (payload) => {
-          const { lat, lon, updated_at } = payload.new;
-          polyline.addLatLng([lat, lon]);
-          marker.setLatLng([lat, lon]);
-          map.panTo([lat, lon]);
-          infoBox.textContent = `📍 Last update: ${formatTime(updated_at)}`;
-        }
-      )
-      .subscribe();
-  }
-
-  loadHistory();
-  subscribeRealtime();
-</script>
-  
+    // Load once + refresh every 10 seconds
+    loadTrajectory();
+    setInterval(loadTrajectory, 10000);
+  </script>
 </body>
 </html>
