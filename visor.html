@@ -2,10 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Live Tracker</title>
+  <title>Live Tracker (Firebase)</title>
+
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
   <style>
     html, body, #map { height: 100%; margin: 0; }
     #timestamp {
@@ -24,63 +32,102 @@
   </style>
 </head>
 <body>
+
   <div id="map"></div>
   <div id="timestamp">Loading...</div>
 
   <script>
-    // ✅ Configure Supabase
-    const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // -----------------------------------------------------
+    // 1. FIREBASE CONFIG - RELLENA ESTOS DATOS
+    // -----------------------------------------------------
+    const firebaseConfig = {
+      apiKey: "TU_API_KEY",
+      authDomain: "TU_PROJECT.firebaseapp.com",
+      projectId: "TU_PROJECT_ID",
+      storageBucket: "TU_PROJECT.appspot.com",
+      messagingSenderId: "XXXX",
+      appId: "XXXXX"
+    };
 
-    // ✅ Read token from URL (e.g., ?t=abc123)
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('t');
-    if (!token) {
-      alert('No token provided');
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // Obtener userId desde URL ?u=XXXX
+    const params = new URLSearchParams(window.location.search);
+    const userId = params.get("u");
+
+    if (!userId) {
+      alert("Error: no userId provided (?u=123)");
     }
 
-    const map = L.map('map').setView([0, 0], 3);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // -----------------------------------------------------
+    // 2. CONFIGURAR MAPA
+    // -----------------------------------------------------
+    const map = L.map("map").setView([0, 0], 3);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 18,
     }).addTo(map);
 
-    let polyline, marker;
+    let polyline = null;
+    let marker = null;
 
+    // -----------------------------------------------------
+    // 3. CARGAR TRAZADO DEL FIRESTORE
+    // -----------------------------------------------------
     async function loadTrajectory() {
-      const { data, error } = await supabase
-        .from('public_locations')
-        .select('lat, lon, updated_at')
-        .eq('share_token', token)
-        .order('updated_at', { ascending: true });
+      try {
+        const querySnapshot = await db.collection("locations")
+          .where("userId", "==", userId)
+          .orderBy("timestamp", "asc")
+          .get();
 
-      if (error) {
-        console.error('Error loading trajectory:', error);
-        return;
+        const points = [];
+        querySnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.lat && data.lng) {
+            points.push([data.lat, data.lng, data.timestamp?.toDate()]);
+          }
+        });
+
+        if (points.length === 0) {
+          document.getElementById("timestamp").textContent = "No locations yet.";
+          return;
+        }
+
+        // Convertir a [lat, lng]
+        const latlngs = points.map(p => [p[0], p[1]]);
+
+        const last = points[points.length - 1];
+
+        // Borrar anteriores
+        if (polyline) map.removeLayer(polyline);
+        if (marker) map.removeLayer(marker);
+
+        // Dibujar polyline
+        polyline = L.polyline(latlngs, { weight: 4 }).addTo(map);
+
+        // Dibujar marcador del último punto
+        marker = L.marker([last[0], last[1]]).addTo(map);
+
+        // Auto-zoom al recorrido completo
+        map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+
+        // Timestamp
+        document.getElementById("timestamp").textContent =
+          "Last update: " + last[2].toLocaleString();
+
+      } catch (err) {
+        console.error("Error loading Firestore:", err);
       }
-
-      if (!data || data.length === 0) {
-        document.getElementById('timestamp').textContent = 'No locations yet.';
-        return;
-      }
-
-      const latlngs = data.map(p => [p.lat, p.lon]);
-      const last = data[data.length - 1];
-
-      if (polyline) map.removeLayer(polyline);
-      if (marker) map.removeLayer(marker);
-
-      polyline = L.polyline(latlngs, { color: 'blue', weight: 4 }).addTo(map);
-      marker = L.marker([last.lat, last.lon]).addTo(map);
-      map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
-
-      const updatedTime = new Date(last.updated_at).toLocaleString();
-      document.getElementById('timestamp').textContent = `Last update: ${updatedTime}`;
     }
 
-    // Load once + refresh every 10 seconds
+    // Cargar una vez
     loadTrajectory();
+
+    // Actualizar cada 10s
     setInterval(loadTrajectory, 10000);
+
   </script>
 </body>
 </html>
