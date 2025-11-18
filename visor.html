@@ -2,15 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Live Tracker (Firebase)</title>
+  <title>Live Tracker (Ruta Compartida)</title>
 
-  <!-- Leaflet CSS -->
+  <!-- Leaflet CSS & JS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Firebase SDK -->
+  <!-- Firebase SDK (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
@@ -32,39 +30,37 @@
   </style>
 </head>
 <body>
-
   <div id="map"></div>
   <div id="timestamp">Loading...</div>
 
   <script>
-    // -----------------------------------------------------
-    // 1. FIREBASE CONFIG - RELLENA ESTOS DATOS
-    // -----------------------------------------------------
+    // -----------------------------
+    // 1️⃣ CONFIGURAR FIREBASE
+    // -----------------------------
     const firebaseConfig = {
       apiKey: "TU_API_KEY",
       authDomain: "TU_PROJECT.firebaseapp.com",
       projectId: "TU_PROJECT_ID",
       storageBucket: "TU_PROJECT.appspot.com",
-      messagingSenderId: "XXXX",
-      appId: "XXXXX"
+      messagingSenderId: "TU_MESSAGING_ID",
+      appId: "TU_APP_ID"
     };
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    // Obtener userId desde URL ?u=XXXX
+    // -----------------------------
+    // 2️⃣ LEER TOKEN DESDE URL
+    // -----------------------------
     const params = new URLSearchParams(window.location.search);
-    const userId = params.get("u");
+    const token = params.get("token");
 
-    if (!userId) {
-      alert("Error: no userId provided (?u=123)");
-    }
+    if (!token) alert("No token provided in URL (?token=...)");
 
-    // -----------------------------------------------------
-    // 2. CONFIGURAR MAPA
-    // -----------------------------------------------------
+    // -----------------------------
+    // 3️⃣ CONFIGURAR MAPA
+    // -----------------------------
     const map = L.map("map").setView([0, 0], 3);
-
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 18,
     }).addTo(map);
@@ -72,13 +68,13 @@
     let polyline = null;
     let marker = null;
 
-    // -----------------------------------------------------
-    // 3. CARGAR TRAZADO DEL FIRESTORE
-    // -----------------------------------------------------
-    async function loadTrajectory() {
+    // -----------------------------
+    // 4️⃣ FUNCION PARA CARGAR RUTA
+    // -----------------------------
+    async function loadRoute() {
       try {
         const querySnapshot = await db.collection("locations")
-          .where("userId", "==", userId)
+          .where("shareToken", "==", token)
           .orderBy("timestamp", "asc")
           .get();
 
@@ -95,9 +91,8 @@
           return;
         }
 
-        // Convertir a [lat, lng]
+        // Lat/Lng array para polyline
         const latlngs = points.map(p => [p[0], p[1]]);
-
         const last = points[points.length - 1];
 
         // Borrar anteriores
@@ -105,12 +100,12 @@
         if (marker) map.removeLayer(marker);
 
         // Dibujar polyline
-        polyline = L.polyline(latlngs, { weight: 4 }).addTo(map);
+        polyline = L.polyline(latlngs, { color: 'blue', weight: 4 }).addTo(map);
 
         // Dibujar marcador del último punto
         marker = L.marker([last[0], last[1]]).addTo(map);
 
-        // Auto-zoom al recorrido completo
+        // Auto-zoom
         map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
 
         // Timestamp
@@ -119,14 +114,15 @@
 
       } catch (err) {
         console.error("Error loading Firestore:", err);
+        document.getElementById("timestamp").textContent = "Error loading route.";
       }
     }
 
-    // Cargar una vez
-    loadTrajectory();
+    // Cargar al iniciar
+    loadRoute();
 
-    // Actualizar cada 10s
-    setInterval(loadTrajectory, 10000);
+    // Actualizar cada 10 segundos
+    setInterval(loadRoute, 10000);
 
   </script>
 </body>
