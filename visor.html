@@ -50,15 +50,17 @@
     const db = firebase.firestore();
 
     // -----------------------------
-    // 2️⃣ LEER TOKEN DESDE URL
+    // 2️⃣ TOKEN DESDE URL
     // -----------------------------
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
 
-    if (!token) alert("No token provided in URL (?token=...)");
+    if (!token) {
+      alert("No token provided in URL (?token=...)");
+    }
 
     // -----------------------------
-    // 3️⃣ CONFIGURAR MAPA
+    // 3️⃣ MAPA
     // -----------------------------
     const map = L.map("map").setView([0, 0], 3);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -69,17 +71,16 @@
     let marker = null;
 
     // -----------------------------
-    // 4️⃣ FUNCION PARA CARGAR RUTA
+    // 4️⃣ SUSCRIPCIÓN EN TIEMPO REAL
     // -----------------------------
-    async function loadRoute() {
-      try {
-        const querySnapshot = await db.collection("locations")
-          .where("shareToken", "==", token)
-          .orderBy("timestamp", "asc")
-          .get();
+    db.collection("locations")
+      .where("shareToken", "==", token)
+      .orderBy("timestamp", "asc")
+      .onSnapshot((snapshot) => {
 
         const points = [];
-        querySnapshot.forEach(doc => {
+
+        snapshot.forEach(doc => {
           const data = doc.data();
           if (data.lat && data.lng) {
             points.push([data.lat, data.lng, data.timestamp?.toDate()]);
@@ -87,11 +88,10 @@
         });
 
         if (points.length === 0) {
-          document.getElementById("timestamp").textContent = "No locations yet.";
+          document.getElementById("timestamp").textContent = "Waiting for location...";
           return;
         }
 
-        // Lat/Lng array para polyline
         const latlngs = points.map(p => [p[0], p[1]]);
         const last = points[points.length - 1];
 
@@ -99,31 +99,19 @@
         if (polyline) map.removeLayer(polyline);
         if (marker) map.removeLayer(marker);
 
-        // Dibujar polyline
+        // Ruta
         polyline = L.polyline(latlngs, { color: 'blue', weight: 4 }).addTo(map);
 
-        // Dibujar marcador del último punto
+        // Marcador del último punto
         marker = L.marker([last[0], last[1]]).addTo(map);
 
-        // Auto-zoom
+        // Auto-fit al actualizar
         map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
 
         // Timestamp
         document.getElementById("timestamp").textContent =
           "Last update: " + last[2].toLocaleString();
-
-      } catch (err) {
-        console.error("Error loading Firestore:", err);
-        document.getElementById("timestamp").textContent = "Error loading route.";
-      }
-    }
-
-    // Cargar al iniciar
-    loadRoute();
-
-    // Actualizar cada 10 segundos
-    setInterval(loadRoute, 10000);
-
+      });
   </script>
 </body>
 </html>
