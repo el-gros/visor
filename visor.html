@@ -1,89 +1,145 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Live Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Tracker - Seguimiento en Vivo</title>
+  
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
   <style>
-    html, body, #map { height: 100%; margin: 0; }
+    html, body, #map { 
+      height: 100%; 
+      margin: 0; 
+      background: #f0f0f0;
+    }
+
     #timestamp {
       position: absolute;
-      bottom: 20px;
+      bottom: 30px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0,0,0,0.7);
+      background: rgba(0, 0, 0, 0.75);
       color: #fff;
-      padding: 6px 12px;
-      border-radius: 8px;
-      font-family: sans-serif;
-      font-size: 20px;
+      padding: 10px 20px;
+      border-radius: 25px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
       z-index: 1000;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      backdrop-filter: blur(5px);
+      white-space: nowrap;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    /* Estilo para el pulso del marcador actual */
+    .current-location-icon {
+      background: #3880ff;
+      border: 3px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
     }
   </style>
 </head>
 <body>
+
   <div id="map"></div>
-  <div id="timestamp">Loading...</div>
+  <div id="timestamp">Esperando señal GPS...</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
-    // Configure Supabase
+    // 1. Configuración de Supabase
     const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co';
-    const SUPABASE_ANON_KEY =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
 
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // Read token from URL (?t=xxxx)
+    // 2. Obtener Token de la URL (?t=xxxx)
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('t');
+
     if (!token) {
-      alert('No token provided');
+      document.getElementById('timestamp').textContent = 'Error: Enlace sin token de seguimiento';
     }
 
-    // Map setup
-    const map = L.map('map').setView([0, 0], 3);
+    // 3. Inicialización del Mapa
+    const map = L.map('map', {
+      zoomControl: false // Lo movemos para que no estorbe en móvil
+    }).setView([0, 0], 2);
+
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18,
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    let polyline, marker;
+    // Variables para los objetos del mapa
+    let polyline = null;
+    let marker = null;
+    let firstLoad = true;
 
+    // 4. Función principal de carga
     async function loadTrajectory() {
+      if (!token) return;
+
       const { data, error } = await supabase
         .from('public_locations')
         .select('lat, lon, updated_at')
         .eq('share_token', token)
-        .order('updated_at', { ascending: true });
+        .order('id', { ascending: true });
 
       if (error) {
-        console.error('Error loading trajectory:', error);
+        console.error('Error en Supabase:', error);
         return;
       }
 
       if (!data || data.length === 0) {
-        document.getElementById('timestamp').textContent = 'No locations yet.';
+        document.getElementById('timestamp').textContent = 'Buscando última posición...';
         return;
       }
 
       const latlngs = data.map(p => [p.lat, p.lon]);
-      const last = data[data.length - 1];
+      const lastPoint = data[data.length - 1];
+      const lastCoords = [lastPoint.lat, lastPoint.lon];
 
-      if (polyline) map.removeLayer(polyline);
-      if (marker) map.removeLayer(marker);
+      // --- Actualizar o Crear Línea (Ruta) ---
+      if (!polyline) {
+        polyline = L.polyline(latlngs, {
+          color: '#3880ff',
+          weight: 5,
+          opacity: 0.6,
+          lineJoin: 'round'
+        }).addTo(map);
+      } else {
+        polyline.setLatLngs(latlngs);
+      }
 
-      polyline = L.polyline(latlngs, { color: 'blue', weight: 4 }).addTo(map);
-      marker = L.marker([last.lat, last.lon]).addTo(map);
-      map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+      // --- Actualizar o Crear Marcador (Punto Actual) ---
+      if (!marker) {
+        marker = L.marker(lastCoords).addTo(map);
+        marker.bindPopup("<b>Ubicación actual</b>").openPopup();
+      } else {
+        marker.setLatLng(lastCoords);
+      }
 
-      const updatedTime = new Date(last.updated_at).toLocaleString();
-      document.getElementById('timestamp').textContent = `Last update: ${updatedTime}`;
+      // --- Gestión del Zoom ---
+      if (firstLoad) {
+        map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+        firstLoad = false;
+      }
+
+      // Actualizar texto inferior
+      const time = new Date(lastPoint.updated_at).toLocaleTimeString();
+      document.getElementById('timestamp').textContent = `Última actualización: ${time}`;
     }
 
-    // Load once + refresh every 10 seconds
+    // 5. Ejecución cíclica
     loadTrajectory();
-    setInterval(loadTrajectory, 10000);
+    setInterval(loadTrajectory, 10000); // Cada 10 segundos
   </script>
 </body>
 </html>
