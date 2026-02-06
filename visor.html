@@ -32,44 +32,37 @@
       white-space: nowrap;
       border: 1px solid rgba(255,255,255,0.1);
     }
-
-    /* Estilo para el pulso del marcador actual */
-    .current-location-icon {
-      background: #3880ff;
-      border: 3px solid white;
-      border-radius: 50%;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
-    }
   </style>
 </head>
 <body>
 
   <div id="map"></div>
-  <div id="timestamp">Esperando señal GPS...</div>
+  <div id="timestamp">Cargando visor...</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
-    // 1. Configuración de Supabase
+    // 1. Configuración de Supabase (Variable renombrada para evitar conflictos)
     const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Usamos el namespace global explícitamente para crear el cliente
+    const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // 2. Obtener Token de la URL (?t=xxxx)
     const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('t');
+    let token = urlParams.get('t');
+    
+    // Limpieza de posibles comillas si se pegó mal la URL
+    if (token) token = token.replace(/['"]+/g, '');
 
     if (!token) {
       document.getElementById('timestamp').textContent = 'Error: Enlace sin token de seguimiento';
     }
 
     // 3. Inicialización del Mapa
-    const map = L.map('map', {
-      zoomControl: false // Lo movemos para que no estorbe en móvil
-    }).setView([0, 0], 2);
-
+    const map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -77,69 +70,69 @@
       attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    // Variables para los objetos del mapa
     let polyline = null;
     let marker = null;
     let firstLoad = true;
 
-    // 4. Función principal de carga
+    // 4. Función de actualización
     async function loadTrajectory() {
       if (!token) return;
 
-      const { data, error } = await supabase
-        .from('public_locations')
-        .select('lat, lon, updated_at')
-        .eq('share_token', token)
-        .order('id', { ascending: true });
+      try {
+        const { data, error } = await sbClient
+          .from('public_locations')
+          .select('lat, lon, updated_at')
+          .eq('share_token', token)
+          .order('id', { ascending: true });
 
-      if (error) {
-        console.error('Error en Supabase:', error);
-        return;
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+          document.getElementById('timestamp').textContent = 'Esperando señal GPS...';
+          return;
+        }
+
+        const latlngs = data.map(p => [p.lat, p.lon]);
+        const lastPoint = data[data.length - 1];
+        const lastCoords = [lastPoint.lat, lastPoint.lon];
+
+        // --- Dibujar Trayectoria ---
+        if (!polyline) {
+          polyline = L.polyline(latlngs, {
+            color: '#3880ff',
+            weight: 5,
+            opacity: 0.6
+          }).addTo(map);
+        } else {
+          polyline.setLatLngs(latlngs);
+        }
+
+        // --- Dibujar Marcador ---
+        if (!marker) {
+          marker = L.marker(lastCoords).addTo(map);
+          marker.bindPopup("<b>Ubicación actual</b>").openPopup();
+        } else {
+          marker.setLatLng(lastCoords);
+        }
+
+        // --- Zoom ---
+        if (firstLoad) {
+          map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+          firstLoad = false;
+        }
+
+        const time = new Date(lastPoint.updated_at).toLocaleTimeString();
+        document.getElementById('timestamp').textContent = `Última actualización: ${time}`;
+
+      } catch (err) {
+        console.error('Error cargando datos:', err.message);
+        document.getElementById('timestamp').textContent = 'Error de conexión';
       }
-
-      if (!data || data.length === 0) {
-        document.getElementById('timestamp').textContent = 'Buscando última posición...';
-        return;
-      }
-
-      const latlngs = data.map(p => [p.lat, p.lon]);
-      const lastPoint = data[data.length - 1];
-      const lastCoords = [lastPoint.lat, lastPoint.lon];
-
-      // --- Actualizar o Crear Línea (Ruta) ---
-      if (!polyline) {
-        polyline = L.polyline(latlngs, {
-          color: '#3880ff',
-          weight: 5,
-          opacity: 0.6,
-          lineJoin: 'round'
-        }).addTo(map);
-      } else {
-        polyline.setLatLngs(latlngs);
-      }
-
-      // --- Actualizar o Crear Marcador (Punto Actual) ---
-      if (!marker) {
-        marker = L.marker(lastCoords).addTo(map);
-        marker.bindPopup("<b>Ubicación actual</b>").openPopup();
-      } else {
-        marker.setLatLng(lastCoords);
-      }
-
-      // --- Gestión del Zoom ---
-      if (firstLoad) {
-        map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
-        firstLoad = false;
-      }
-
-      // Actualizar texto inferior
-      const time = new Date(lastPoint.updated_at).toLocaleTimeString();
-      document.getElementById('timestamp').textContent = `Última actualización: ${time}`;
     }
 
-    // 5. Ejecución cíclica
+    // 5. Bucle
     loadTrajectory();
-    setInterval(loadTrajectory, 10000); // Cada 10 segundos
+    setInterval(loadTrajectory, 10000);
   </script>
 </body>
 </html>
