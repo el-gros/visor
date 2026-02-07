@@ -1,106 +1,78 @@
-<script>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    html, body, #map { height: 100%; margin: 0; background: #f0f0f0; }
+    #timestamp {
+      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8); color: #fff; padding: 10px 20px;
+      border-radius: 25px; font-family: sans-serif; z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+  <div id="timestamp">Iniciando sistema...</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script type="module">
+    // Importamos Supabase directamente como módulo para evitar el error "undefined"
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
     const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
 
-    const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const sbClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const urlParams = new URLSearchParams(window.location.search);
-    let token = urlParams.get('t');
-    if (token) token = token.replace(/['"]+/g, '');
+    let token = urlParams.get('t')?.replace(/['"]+/g, '');
 
-    if (!token) {
-      document.getElementById('timestamp').textContent = 'Error: Enlace sin token';
-    }
-
-    // Inicialización del Mapa
+    // Inicializar Mapa
     const map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
-    L.control.zoom({ position: 'topright' }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap'
-    }).addTo(map);
-
-    // --- ELEMENTOS DE DISEÑO ---
-    // 1. Icono personalizado para el punto actual (Círculo azul con borde blanco)
-    const currentPosIcon = L.divIcon({
-      className: 'custom-element',
-      html: `<div style="
-        width: 15px; 
-        height: 15px; 
-        background: #3880ff; 
-        border: 3px solid white; 
-        border-radius: 50%; 
-        box-shadow: 0 0 10px rgba(0,0,0,0.5);
-      "></div>`,
-      iconSize: [15, 15],
-      iconAnchor: [7, 7]
-    });
-
-    let polyline = null;
-    let marker = null;
+    let polyline = L.polyline([], { color: '#3880ff', weight: 5 }).addTo(map);
+    let marker = L.marker([0,0]).addTo(map);
     let firstLoad = true;
 
-    async function loadTrajectory() {
-      if (!token) return;
-
-      try {
-        const { data, error } = await sbClient
-          .from('public_locations')
-          .select('lat, lon, updated_at')
-          .eq('share_token', token)
-          .order('updated_at', { ascending: true }); // Ordenamos por tiempo
-
-        if (error) throw error;
-
-        if (!data || data.length === 0) {
-          document.getElementById('timestamp').textContent = 'Esperando señal GPS...';
-          return;
-        }
-
-        const latlngs = data.map(p => [p.lat, p.lon]);
-        const lastPoint = data[data.length - 1];
-        const lastCoords = [lastPoint.lat, lastPoint.lon];
-
-        // --- DIBUJAR TRAYECTORIA (Toda la ruta) ---
-        if (!polyline) {
-          polyline = L.polyline(latlngs, {
-            color: '#3880ff',
-            weight: 4,
-            opacity: 0.8,
-            lineJoin: 'round'
-          }).addTo(map);
-        } else {
-          polyline.setLatLngs(latlngs);
-        }
-
-        // --- DESTACAR ÚLTIMO PUNTO ---
-        if (!marker) {
-          marker = L.marker(lastCoords, { icon: currentPosIcon }).addTo(map);
-          marker.bindPopup("<b>Estoy aquí</b>");
-        } else {
-          marker.setLatLng(lastCoords);
-        }
-
-        // --- COMPORTAMIENTO DE CÁMARA ---
-        if (firstLoad) {
-          map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
-          firstLoad = false;
-        } else {
-          // Centrado suave en el último punto tras la carga inicial
-          map.panTo(lastCoords);
-        }
-
-        const time = new Date(lastPoint.updated_at).toLocaleTimeString();
-        document.getElementById('timestamp').textContent = `Vivo • Actualizado: ${time}`;
-
-      } catch (err) {
-        console.error('Error:', err.message);
-        document.getElementById('timestamp').textContent = 'Reconectando...';
+    async function update() {
+      if (!token) {
+        document.getElementById('timestamp').textContent = "Falta Token";
+        return;
       }
+
+      const { data, error } = await sbClient
+        .from('public_locations')
+        .select('lat, lon, updated_at')
+        .eq('share_token', token)
+        .order('updated_at', { ascending: true });
+https://github.com/el-gros/visor
+      if (error || !data.length) return;
+
+      const coords = data.map(d => [d.lat, d.lon]);
+      const last = coords[coords.length - 1];
+
+      polyline.setLatLngs(coords);
+      marker.setLatLng(last);
+
+      if (firstLoad) {
+        map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+        firstLoad = false;
+      } else {
+        map.panTo(last);
+      }
+
+      document.getElementById('timestamp').textContent = `Actualizado: ${new Date(data[data.length-1].updated_at).toLocaleTimeString()}`;
     }
 
-    loadTrajectory();
-    // Consultamos cada 5 segundos para que sea más fluido
-    setInterval(loadTrajectory, 5000);
+    setInterval(update, 5000);
+    update();
   </script>
+</body>
+</html>
