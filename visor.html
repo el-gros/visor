@@ -11,6 +11,7 @@
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
       background: rgba(0, 0, 0, 0.8); color: #fff; padding: 10px 20px;
       border-radius: 25px; font-family: sans-serif; z-index: 1000;
+      text-align: center;
     }
   </style>
 </head>
@@ -21,7 +22,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<script>
+  <script>
     const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
 
@@ -37,11 +38,10 @@
 
     async function update() {
       if (!token) {
-        document.getElementById('timestamp').innerHTML = `<span class="version-tag">[v4]</span> Falta token`;
+        document.getElementById('timestamp').textContent = "Falta token de seguimiento";
         return;
       }
 
-      // CORRECCIÓN: Hemos quitado el &_cb=... de la URL para que PostgREST no dé error PGRST100
       const url = `${SUPABASE_URL}/rest/v1/public_locations?share_token=eq.${token}&select=lat,lon,updated_at&order=updated_at.asc&limit=2000`;
 
       try {
@@ -50,15 +50,13 @@
           headers: {
             'apikey': SUPABASE_ANON_KEY,
             'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Cache-Control': 'no-store, no-cache, must-revalidate' // Forzamos la recarga aquí
+            'Cache-Control': 'no-store, no-cache, must-revalidate'
           }
         });
 
         if (!response.ok) throw new Error(`Status: ${response.status}`);
 
         const data = await response.json();
-        
-        console.warn(`[v4] -> Puntos descargados: ${data.length}`);
 
         if (data.length === 0) return;
 
@@ -76,10 +74,10 @@
         }
 
         const timeString = new Date(data[data.length - 1].updated_at).toLocaleTimeString();
-        document.getElementById('timestamp').innerHTML = `<span class="version-tag">[v4]</span> Actualizado: ${timeString} (${data.length} pts)`;
+        document.getElementById('timestamp').textContent = `Actualizado: ${timeString}`;
 
       } catch (error) {
-        console.error("Error fetching:", error);
+        console.error("Error en la actualización:", error);
       }
     }
 
