@@ -22,13 +22,17 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script type="module">
-    // Importamos Supabase directamente como módulo para evitar el error "undefined"
     import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 
     const SUPABASE_URL = 'https://xvezdemtphqwgjukjhan.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZXpkZW10cGhxd2dqdWtqaGFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4OTQxMTYsImV4cCI6MjA3ODQ3MDExNn0.ayOgM2MIXJiW_q4AbAyQ4KzgiiNEF5o7sQLr2d_oX1E';
 
-    const sbClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // FIX 1: Desactivamos explícitamente el caché de fetch para evitar que el navegador nos mienta
+    const sbClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        fetch: (url, options) => fetch(url, { ...options, cache: 'no-store' })
+      }
+    });
 
     const urlParams = new URLSearchParams(window.location.search);
     let token = urlParams.get('t')?.replace(/['"]+/g, '');
@@ -51,8 +55,9 @@
         .from('public_locations')
         .select('lat, lon, updated_at')
         .eq('share_token', token)
-        .order('updated_at', { ascending: true });
-https://github.com/el-gros/visor
+        .order('updated_at', { ascending: true })
+        .limit(5000); // FIX 2: Ampliamos el límite por si el track es muy largo
+
       if (error || !data.length) return;
 
       const coords = data.map(d => [d.lat, d.lon]);
@@ -65,7 +70,9 @@ https://github.com/el-gros/visor
         map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
         firstLoad = false;
       } else {
-        map.panTo(last);
+        // Opcional: Centrar el mapa en cada tick puede ser molesto si el 
+        // espectador intenta hacer zoom o moverse por el mapa para explorar.
+        map.panTo(last); 
       }
 
       document.getElementById('timestamp').textContent = `Actualizado: ${new Date(data[data.length-1].updated_at).toLocaleTimeString()}`;
@@ -73,6 +80,6 @@ https://github.com/el-gros/visor
 
     setInterval(update, 5000);
     update();
-  </script>
-</body>
+    </script>
+  </body>
 </html>
