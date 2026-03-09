@@ -73,7 +73,7 @@
           map.panTo(lastCoord);
         }
 
-        const timeString = new Date(data[data.length - 1].updated_at).toLocaleTimeString();
+        const timeString = new Date().toLocaleTimeString('es-ES');
         document.getElementById('timestamp').textContent = `Actualizado: ${timeString}`;
 
       } catch (error) {
